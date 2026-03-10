@@ -58,8 +58,10 @@ function PredictionCard({ prediction, accuracy, thresholds }) {
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <div className="text-xs font-medium text-gray-400 uppercase tracking-wider">方向预测</div>
-          <div className="text-xs text-gray-400 mt-0.5">决策时刻 {ts} · 基于24h事件+价格动量</div>
+          <div className="text-xs font-medium text-gray-400 uppercase tracking-wider">当前未来走势判断</div>
+          <div className="text-xs text-gray-400 mt-0.5">
+            决策时刻 {ts}，针对未来 <span className="font-medium text-gray-600">4h / 24h / 72h</span>
+          </div>
         </div>
         <div className="text-xs text-gray-400 text-right">
           <span>↑{prediction.bullish_count}</span>
@@ -83,7 +85,7 @@ function AccuracyV2Card({ accuracy }) {
   const horizons = ['4h', '24h', '72h']
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-      <div className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-4">预测准确率</div>
+      <div className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-4">历史预测命中率</div>
       <div className="flex gap-3">
         {horizons.map(h => {
           const a = (accuracy || []).find(x => x.horizon === h)
@@ -94,12 +96,14 @@ function AccuracyV2Card({ accuracy }) {
           const barColor = rate >= 65 ? 'bg-green-500' : rate >= 45 ? 'bg-amber-400' : 'bg-gray-200'
           return (
             <div key={h} className="flex-1 text-center">
-              <div className="text-xs text-gray-400 mb-1">{h}</div>
+              <div className="text-xs font-semibold text-gray-500 mb-1">{h} 命中率</div>
               <div className={`text-2xl font-bold ${color}`}>{total === 0 ? '--' : `${Math.round(rate)}%`}</div>
               <div className="w-full h-1.5 bg-gray-100 rounded-full mt-1.5 overflow-hidden">
                 <div className={`h-full ${barColor} rounded-full`} style={{ width: `${rate}%` }} />
               </div>
-              <div className="text-xs text-gray-400 mt-1">{correct}/{total}</div>
+              <div className="text-xs text-gray-400 mt-1.5">{correct}/{total}</div>
+              <div className="text-xs text-gray-300 mt-0.5">已结算预测</div>
+              <div className="text-xs text-gray-300">settled predictions</div>
             </div>
           )
         })}
