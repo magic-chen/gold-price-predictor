@@ -93,7 +93,6 @@ function PriceChart({ history, days, setDays }) {
               <span className="text-gray-500">均价 <b className="text-gray-700">${fmt(avgP)}</b></span>
               <span className="text-green-600">最高 <b>${fmt(Math.max(...prices))}</b></span>
               <span className="text-red-500">最低 <b>${fmt(Math.min(...prices))}</b></span>
-              {trend !== 0 && <span className={trend > 0 ? 'text-green-600' : 'text-red-500'}>{trend > 0 ? '▲' : '▼'} ${fmt(Math.abs(trend))} 区间变动</span>}
             </div>
           )}
         </div>
@@ -131,7 +130,51 @@ function PriceChart({ history, days, setDays }) {
   )
 }
 
-// ─── 事件卡片 ────────────────────────────────────────────────
+// ─── 每日标题栏 ──────────────────────────────────────────────
+function DayHeader({ dateStr, events }) {
+  const bullish = events.filter(e => e.sentiment === 'bullish').length
+  const bearish = events.filter(e => e.sentiment === 'bearish').length
+  const total = events.length
+
+  // 当天整体预测倾向
+  let overall, overallColor, overallBg, overallIcon
+  if (bullish > bearish) {
+    overall = '整体利好'; overallColor = 'text-green-700'; overallBg = 'bg-green-100'; overallIcon = '↑'
+  } else if (bearish > bullish) {
+    overall = '整体利空'; overallColor = 'text-red-600'; overallBg = 'bg-red-100'; overallIcon = '↓'
+  } else {
+    overall = '信号混合'; overallColor = 'text-gray-500'; overallBg = 'bg-gray-100'; overallIcon = '—'
+  }
+
+  // 找是否有回测过的事件
+  const verified = events.filter(e => e.verified_result)
+  const correctCount = verified.filter(e => e.verified_result === 'correct').length
+  const hasVerified = verified.length > 0
+
+  return (
+    <div className="flex items-center gap-3 mt-6 mb-3 first:mt-0">
+      {/* 日期 */}
+      <div className="flex-shrink-0 text-sm font-bold text-gray-700 w-16">{dateStr}</div>
+
+      {/* 分割线 */}
+      <div className="flex-1 h-px bg-gray-200" />
+
+      {/* 当日预测标签 */}
+      <span className={`flex-shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full ${overallBg} ${overallColor}`}>
+        {overallIcon} {overall} · {total}条
+      </span>
+
+      {/* 回测结果（有的话） */}
+      {hasVerified && (
+        <span className={`flex-shrink-0 text-xs font-medium px-2.5 py-1 rounded-full ${
+          correctCount === verified.length ? 'bg-green-600 text-white' : 'bg-red-500 text-white'
+        }`}>
+          回测 {correctCount}/{verified.length} 正确
+        </span>
+      )}
+    </div>
+  )
+}
 const SENTIMENT = {
   bullish: {
     label: '利好金价', icon: '↑',
@@ -379,11 +422,31 @@ export default function App() {
 
               {events.length === 0 ? (
                 <div className="text-center py-12 text-gray-300 text-sm">暂无事件，点击刷新获取</div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {events.map(evt => <EventCard key={evt.id} evt={evt} />)}
-                </div>
-              )}
+              ) : (() => {
+                // 按日期分组
+                const groups = {}
+                events.forEach(evt => {
+                  const day = evt.published_at
+                    ? new Date(evt.published_at).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
+                    : '未知日期'
+                  if (!groups[day]) groups[day] = []
+                  groups[day].push(evt)
+                })
+                // 按日期降序排列
+                const sortedDays = Object.keys(groups).sort((a, b) => {
+                  const da = new Date(groups[a][0].published_at)
+                  const db = new Date(groups[b][0].published_at)
+                  return db - da
+                })
+                return sortedDays.map(day => (
+                  <div key={day}>
+                    <DayHeader dateStr={day} events={groups[day]} />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {groups[day].map(evt => <EventCard key={evt.id} evt={evt} />)}
+                    </div>
+                  </div>
+                ))
+              })()}
             </div>
           </>
         )}
