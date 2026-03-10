@@ -103,7 +103,6 @@ function AccuracyV2Card({ accuracy }) {
               </div>
               <div className="text-xs text-gray-400 mt-1.5">{correct}/{total}</div>
               <div className="text-xs text-gray-300 mt-0.5">已结算预测</div>
-              <div className="text-xs text-gray-300">settled predictions</div>
             </div>
           )
         })}
@@ -253,7 +252,7 @@ const SENTIMENT = {
 function EventCard({ evt }) {
   const s = SENTIMENT[evt.sentiment] || SENTIMENT.neutral
   const dateStr = evt.published_at
-    ? new Date(evt.published_at).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
+    ? new Date(evt.published_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
     : ''
   const tags = (evt.impact_keywords || '').split(',').map(t => t.trim()).filter(Boolean).slice(0, 3)
   const hasVerified = !!evt.verified_result
@@ -422,7 +421,11 @@ export default function App() {
                     {priceUp ? '▲' : '▼'} ${fmt(Math.abs(priceChange))}（{priceUp ? '+' : ''}{priceChangePct}%）
                   </div>
                 )}
-                <div className="text-xs text-gray-400 mt-2">XAU/USD · 每30分钟更新</div>
+                <div className="text-xs text-gray-400 mt-2">
+                  {latest?.fetched_at
+                    ? `最近更新 ${new Date(latest.fetched_at + (latest.fetched_at.endsWith('Z') ? '' : 'Z')).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`
+                    : 'XAU/USD · 每30分钟更新'}
+                </div>
               </div>
 
               {/* 国内金价（人民币/克） */}
