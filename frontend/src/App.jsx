@@ -6,53 +6,103 @@ import { useDashboard } from './hooks/useDashboard'
 const BASE = import.meta.env.VITE_API_BASE || ''
 const fmt = (n, d = 2) => n != null ? Number(n).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }) : '--'
 
-// ─── 顶部统计卡片 ────────────────────────────────────────────
-function MetricCard({ label, value, sub, valueClass = 'text-gray-900', badge, icon }) {
+// ─── 多窗口预测卡片 ──────────────────────────────────────────
+const DIR_STYLE = {
+  up:      { label: '看涨', icon: '↑', bg: 'bg-green-50',  border: 'border-green-200', text: 'text-green-700', bar: 'bg-green-500' },
+  down:    { label: '看跌', icon: '↓', bg: 'bg-red-50',    border: 'border-red-200',   text: 'text-red-600',   bar: 'bg-red-500'   },
+  neutral: { label: '震荡', icon: '—', bg: 'bg-gray-50',   border: 'border-gray-200',  text: 'text-gray-500',  bar: 'bg-gray-300'  },
+}
+
+const RESULT_STYLE = {
+  correct: { label: '✓ 正确', cls: 'bg-green-600 text-white' },
+  wrong:   { label: '✗ 错误', cls: 'bg-red-500 text-white'   },
+  neutral: { label: '— 中性', cls: 'bg-gray-200 text-gray-500' },
+}
+
+function HorizonBadge({ horizon, direction, confidence, result, threshold }) {
+  const s = DIR_STYLE[direction] || DIR_STYLE.neutral
+  const confPct = confidence != null ? Math.round(confidence * 100) : 0
+
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex flex-col gap-2">
+    <div className={`flex-1 rounded-xl border ${s.border} ${s.bg} p-3 flex flex-col gap-1.5`}>
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">{label}</span>
-        {icon && <span className="text-gray-300">{icon}</span>}
+        <span className="text-xs font-bold text-gray-400">{horizon}</span>
+        {result && <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-md ${RESULT_STYLE[result]?.cls}`}>{RESULT_STYLE[result]?.label}</span>}
       </div>
-      <div className={`text-3xl font-bold leading-none ${valueClass}`}>{value}</div>
-      {(sub || badge) && (
-        <div className="flex items-center gap-2 mt-1">
-          {badge && <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${badge.cls}`}>{badge.text}</span>}
-          {sub && <span className="text-xs text-gray-400">{sub}</span>}
-        </div>
-      )}
+      <div className={`text-xl font-bold ${s.text}`}>{s.icon} {s.label}</div>
+      {/* 置信度条 */}
+      <div className="w-full h-1 bg-white rounded-full overflow-hidden">
+        <div className={`h-full ${s.bar} rounded-full transition-all`} style={{ width: `${confPct}%` }} />
+      </div>
+      <div className="flex justify-between text-xs text-gray-400">
+        <span>置信 {confPct}%</span>
+        <span>阈值 {threshold}%</span>
+      </div>
     </div>
   )
 }
 
-// ─── 准确率圆弧 ──────────────────────────────────────────────
-function AccuracyCard({ rate, total, correct }) {
-  const wrong = (total || 0) - (correct || 0)
-  const r = 50, circ = 2 * Math.PI * r
-  const filled = total > 0 ? (rate / 100) * circ : 0
-  const color = rate >= 65 ? '#16a34a' : rate >= 45 ? '#B8860B' : rate === 0 && total === 0 ? '#E5E7EB' : '#dc2626'
+function PredictionCard({ prediction, accuracy, thresholds }) {
+  if (!prediction) return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 col-span-full">
+      <div className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">方向预测</div>
+      <div className="text-sm text-gray-300 text-center py-4">预测生成中…</div>
+    </div>
+  )
+
+  const ts = prediction.decision_time
+    ? new Date(prediction.decision_time + 'Z').toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : '--'
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-      <div className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">预测准确率</div>
-      <div className="flex items-center gap-5">
-        <div className="relative flex-shrink-0" style={{ width: 110, height: 110 }}>
-          <svg width="110" height="110" className="-rotate-90" viewBox="0 0 110 110">
-            <circle cx="55" cy="55" r={r} fill="none" stroke="#F3F4F6" strokeWidth="10" />
-            <circle cx="55" cy="55" r={r} fill="none" stroke={color} strokeWidth="10"
-              strokeDasharray={circ} strokeDashoffset={total === 0 ? circ : circ - filled}
-              strokeLinecap="round" style={{ transition: 'stroke-dashoffset 1.2s cubic-bezier(.4,0,.2,1)' }} />
-          </svg>
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-2xl font-bold text-gray-900">{total === 0 ? '--' : `${Math.round(rate)}%`}</span>
-            <span className="text-xs text-gray-400">{total}次</span>
-          </div>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <div className="text-xs font-medium text-gray-400 uppercase tracking-wider">方向预测</div>
+          <div className="text-xs text-gray-400 mt-0.5">决策时刻 {ts} · 基于24h事件+价格动量</div>
         </div>
-        <div className="flex flex-col gap-3">
-          <div><div className="text-xl font-bold text-green-600">{correct ?? 0}</div><div className="text-xs text-gray-400">预测正确</div></div>
-          <div className="h-px bg-gray-100 w-10" />
-          <div><div className="text-xl font-bold text-red-500">{wrong}</div><div className="text-xs text-gray-400">预测错误</div></div>
+        <div className="text-xs text-gray-400 text-right">
+          <span>↑{prediction.bullish_count}</span>
+          <span className="mx-1">↓{prediction.bearish_count}</span>
+          <span>—{prediction.neutral_count}</span>
+          <div>{prediction.price_change_24h != null ? `${prediction.price_change_24h > 0 ? '+' : ''}${prediction.price_change_24h}%` : ''} 24h</div>
         </div>
+      </div>
+
+      <div className="flex gap-2">
+        <HorizonBadge horizon="4h"  direction={prediction.direction_4h}  confidence={prediction.confidence_4h}  result={prediction.result_4h}  threshold={thresholds?.['4h']  ?? 0.25} />
+        <HorizonBadge horizon="24h" direction={prediction.direction_24h} confidence={prediction.confidence_24h} result={prediction.result_24h} threshold={thresholds?.['24h'] ?? 0.50} />
+        <HorizonBadge horizon="72h" direction={prediction.direction_72h} confidence={prediction.confidence_72h} result={prediction.result_72h} threshold={thresholds?.['72h'] ?? 1.00} />
+      </div>
+    </div>
+  )
+}
+
+// ─── 准确率卡片（v2，三窗口）────────────────────────────────
+function AccuracyV2Card({ accuracy }) {
+  const horizons = ['4h', '24h', '72h']
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <div className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-4">预测准确率</div>
+      <div className="flex gap-3">
+        {horizons.map(h => {
+          const a = (accuracy || []).find(x => x.horizon === h)
+          const rate = a?.rate ?? 0
+          const total = a?.total ?? 0
+          const correct = a?.correct ?? 0
+          const color = rate >= 65 ? 'text-green-600' : rate >= 45 ? 'text-amber-600' : total === 0 ? 'text-gray-300' : 'text-red-500'
+          const barColor = rate >= 65 ? 'bg-green-500' : rate >= 45 ? 'bg-amber-400' : 'bg-gray-200'
+          return (
+            <div key={h} className="flex-1 text-center">
+              <div className="text-xs text-gray-400 mb-1">{h}</div>
+              <div className={`text-2xl font-bold ${color}`}>{total === 0 ? '--' : `${Math.round(rate)}%`}</div>
+              <div className="w-full h-1.5 bg-gray-100 rounded-full mt-1.5 overflow-hidden">
+                <div className={`h-full ${barColor} rounded-full`} style={{ width: `${rate}%` }} />
+              </div>
+              <div className="text-xs text-gray-400 mt-1">{correct}/{total}</div>
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -266,6 +316,9 @@ export default function App() {
   const [history, setHistory] = useState([])
   const [days, setDays] = useState(7)
   const [lastUpdate, setLastUpdate] = useState(null)
+  const [predV2, setPredV2] = useState(null)
+  const [accuracyV2, setAccuracyV2] = useState([])
+  const [thresholds, setThresholds] = useState({})
 
   const loadHistory = useCallback(async (d) => {
     try {
@@ -274,10 +327,24 @@ export default function App() {
     } catch (e) {}
   }, [])
 
+  const loadPredV2 = useCallback(async () => {
+    try {
+      const res = await axios.get(`${BASE}/api/predictions/v2/latest`)
+      if (res.data.success) {
+        setPredV2(res.data.data.latest)
+        setAccuracyV2(res.data.data.accuracy)
+        setThresholds(res.data.data.thresholds || {})
+      }
+    } catch (e) {}
+  }, [])
+
   useEffect(() => { loadHistory(days) }, [days])
 
   useEffect(() => {
-    if (data) setLastUpdate(new Date())
+    if (data) {
+      setLastUpdate(new Date())
+      loadPredV2()
+    }
   }, [data])
 
   const stats = data?.stats
@@ -337,7 +404,7 @@ export default function App() {
           </div>
         ) : (
           <>
-            {/* ── 顶部卡片 3列 ── */}
+            {/* ── 顶部卡片：金价 + 国内金价 + 准确率 ── */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
 
               {/* 国际金价 */}
@@ -361,18 +428,15 @@ export default function App() {
                   {cnyPerGram ? `¥${cnyPerGram.toFixed(2)}` : <span className="text-gray-300 text-2xl">计算中…</span>}
                 </div>
                 <div className="mt-2 text-sm text-gray-500">每克 · 人民币</div>
-                <div className="text-xs text-gray-400 mt-2">
-                  基于实时汇率换算，仅供参考
-                </div>
+                <div className="text-xs text-gray-400 mt-2">基于实时汇率换算，仅供参考</div>
               </div>
 
-              {/* 预测准确率 */}
-              <AccuracyCard
-                rate={stats?.accuracy_rate ?? 0}
-                total={stats?.total_predictions ?? 0}
-                correct={stats?.correct_predictions ?? 0}
-              />
+              {/* 三窗口准确率 */}
+              <AccuracyV2Card accuracy={accuracyV2} />
             </div>
+
+            {/* ── 当前预测卡片 ── */}
+            <PredictionCard prediction={predV2} accuracy={accuracyV2} thresholds={thresholds} />
 
             {/* ── 走势图 ── */}
             <PriceChart history={history} days={days} setDays={setDays} />
