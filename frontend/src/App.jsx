@@ -133,59 +133,86 @@ function PriceChart({ history, days, setDays }) {
 
 // ─── 事件卡片 ────────────────────────────────────────────────
 const SENTIMENT = {
-  bullish: { label: '利好金价', bg: 'bg-amber-50', border: 'border-amber-200', dot: 'bg-amber-400', text: 'text-amber-700', icon: '↑' },
-  bearish: { label: '利空金价', bg: 'bg-blue-50',  border: 'border-blue-100',  dot: 'bg-blue-400',  text: 'text-blue-700',  icon: '↓' },
-  neutral: { label: '影响中性', bg: 'bg-gray-50',  border: 'border-gray-100',  dot: 'bg-gray-300',  text: 'text-gray-500',  icon: '—' },
+  bullish: {
+    label: '利好金价', icon: '↑',
+    cardBg: 'bg-green-50', cardBorder: 'border-green-200',
+    tagBg: 'bg-green-100', tagText: 'text-green-700',
+    dot: 'bg-green-400',
+  },
+  bearish: {
+    label: '利空金价', icon: '↓',
+    cardBg: 'bg-red-50', cardBorder: 'border-red-200',
+    tagBg: 'bg-red-100', tagText: 'text-red-700',
+    dot: 'bg-red-400',
+  },
+  neutral: {
+    label: '影响中性', icon: '—',
+    cardBg: 'bg-gray-50', cardBorder: 'border-gray-200',
+    tagBg: 'bg-gray-100', tagText: 'text-gray-500',
+    dot: 'bg-gray-300',
+  },
 }
 
 function EventCard({ evt }) {
   const s = SENTIMENT[evt.sentiment] || SENTIMENT.neutral
-  const dateStr = evt.published_at ? new Date(evt.published_at).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }) : ''
+  const dateStr = evt.published_at
+    ? new Date(evt.published_at).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
+    : ''
   const tags = (evt.impact_keywords || '').split(',').map(t => t.trim()).filter(Boolean).slice(0, 3)
   const hasVerified = !!evt.verified_result
+  const isCorrect = evt.verified_result === 'correct'
 
   return (
     <a href={evt.url || '#'} target="_blank" rel="noopener noreferrer"
-      className={`block rounded-xl border ${s.border} ${s.bg} p-4 hover:shadow-md transition-all group`}>
-      {/* 情绪标签行 */}
-      <div className="flex items-center gap-2 mb-2">
-        <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-white border ${s.border} ${s.text}`}>
-          <span>{s.icon}</span> {s.label}
-        </span>
-        <span className="text-xs text-gray-400">{evt.source}</span>
-        <span className="text-xs text-gray-300 ml-auto">{dateStr}</span>
-      </div>
+      className={`block rounded-xl border ${s.cardBorder} ${s.cardBg} overflow-hidden hover:shadow-md transition-all group`}>
 
-      {/* 标题（中文优先，后跟英文） */}
-      <p className="text-sm font-semibold text-gray-800 leading-snug group-hover:text-[#B8860B] transition-colors line-clamp-2 mb-1">
-        {evt.title_zh && evt.title_zh !== evt.title ? evt.title_zh : evt.title}
-      </p>
-      {evt.title_zh && evt.title_zh !== evt.title && (
-        <p className="text-xs text-gray-400 line-clamp-1 mb-2 italic">{evt.title}</p>
-      )}
-
-      {/* 判断依据 */}
-      {evt.sentiment_reason && (
-        <p className="text-xs text-gray-500 bg-white/60 rounded-lg px-3 py-1.5 mt-2 border border-white">
-          <span className="font-medium text-gray-600">判断依据：</span>{evt.sentiment_reason}
-        </p>
-      )}
-
-      {/* 回测结果 */}
+      {/* 回测验证结果标题区（仅在有验证结果时显示） */}
       {hasVerified && (
-        <div className={`mt-2 text-xs font-semibold px-3 py-1 rounded-lg inline-block ${
-          evt.verified_result === 'correct' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+        <div className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold border-b ${
+          isCorrect
+            ? 'bg-green-600 text-white border-green-700'
+            : 'bg-red-500 text-white border-red-600'
         }`}>
-          {evt.verified_result === 'correct' ? '✓ 回测验证：预测正确' : '✗ 回测验证：预测错误'}
+          <span>{isCorrect ? '✓' : '✗'}</span>
+          <span>回测验证</span>
+          <span className="font-normal opacity-90">{isCorrect ? '预测正确' : '预测错误'}</span>
         </div>
       )}
 
-      {/* 关键词标签 */}
-      {tags.length > 0 && (
-        <div className="flex gap-1 mt-2 flex-wrap">
-          {tags.map(t => <span key={t} className="text-xs bg-white text-gray-400 border border-gray-200 px-2 py-0.5 rounded-full">{t}</span>)}
+      {/* 卡片主体 */}
+      <div className="p-4">
+        {/* 顶部：情绪标签 + 来源 + 日期 */}
+        <div className="flex items-center gap-2 mb-2.5">
+          <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${s.tagBg} ${s.tagText}`}>
+            {s.icon} {s.label}
+          </span>
+          <span className="text-xs text-gray-400">{evt.source}</span>
+          <span className="text-xs text-gray-300 ml-auto flex-shrink-0">{dateStr}</span>
         </div>
-      )}
+
+        {/* 新闻标题（英文原文） */}
+        <p className="text-sm font-semibold text-gray-800 leading-snug group-hover:text-[#B8860B] transition-colors line-clamp-2 mb-2">
+          {evt.title}
+        </p>
+
+        {/* 判断依据 */}
+        {evt.sentiment_reason && evt.sentiment !== 'neutral' && (
+          <p className="text-xs text-gray-500 leading-relaxed">
+            <span className="font-medium text-gray-600">依据：</span>{evt.sentiment_reason}
+          </p>
+        )}
+
+        {/* 关键词标签 */}
+        {tags.length > 0 && (
+          <div className="flex gap-1 mt-2.5 flex-wrap">
+            {tags.map(t => (
+              <span key={t} className="text-xs bg-white/70 text-gray-400 border border-gray-200 px-2 py-0.5 rounded-full">
+                {t}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
     </a>
   )
 }
@@ -268,7 +295,7 @@ export default function App() {
               </svg>
             </div>
             <div>
-              <h1 className="text-sm font-bold text-gray-900">国际金价预测仪表盘</h1>
+              <h1 className="text-sm font-bold text-gray-900">金价预测</h1>
               <p className="text-xs text-gray-400">Gold Price Predictor · 事件驱动分析</p>
             </div>
           </div>
