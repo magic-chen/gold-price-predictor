@@ -1,6 +1,5 @@
 /**
  * 新闻爬取服务：从多个财经新闻源抓取影响金价的国际大事件
- * 抓取策略：无需API Key，直接抓取公开页面
  */
 const axios = require('axios');
 const cheerio = require('cheerio');
@@ -9,44 +8,42 @@ const db = require('../db/init');
 // 金价敏感关键词
 const GOLD_KEYWORDS = [
   'gold', 'inflation', 'fed', 'federal reserve', 'interest rate', 'dollar', 'USD',
-  'war', 'conflict', 'geopolitical', 'ukraine', 'russia', 'china', 'US china',
+  'war', 'conflict', 'geopolitical', 'ukraine', 'russia', 'china', 'iran',
   'recession', 'crisis', 'debt', 'treasury', 'safe haven', 'risk off',
   'central bank', 'rate hike', 'rate cut', 'powell', 'CPI', 'GDP',
-  'sanctions', 'tariff', 'trade war', 'oil', 'middle east',
+  'sanctions', 'tariff', 'trade war', 'oil', 'middle east', 'stagflation',
+  'xau', 'precious metal', 'bullion', 'silver', 'commodity',
   '黄金', '美联储', '加息', '降息', '通胀', '地缘政治', '战争', '危机'
 ];
 
-// 新闻源配置（全部免费公开）
+// 可用新闻源（经过服务器连通性测试）
 const NEWS_SOURCES = [
   {
-    name: 'Reuters Finance',
-    url: 'https://feeds.reuters.com/reuters/businessNews',
+    name: 'WSJ Markets',
+    url: 'https://feeds.a.dj.com/rss/RSSMarketsMain.xml',
     type: 'rss'
   },
   {
-    name: 'BBC Business',
-    url: 'http://feeds.bbci.co.uk/news/business/rss.xml',
+    name: 'ForexLive',
+    url: 'https://www.forexlive.com/feed/news',
     type: 'rss'
   },
   {
-    name: 'FT Markets RSS',
-    url: 'https://www.ft.com/markets?format=rss',
+    name: 'Investing.com Gold',
+    url: 'https://www.investing.com/rss/news_25.rss',
     type: 'rss'
   },
   {
     name: 'CNBC Economy',
     url: 'https://www.cnbc.com/id/20910258/device/rss/rss.html',
-    type: 'rss'
+    type: 'rss',
+    fallback: true
   },
   {
     name: 'MarketWatch',
     url: 'https://feeds.marketwatch.com/marketwatch/topstories/',
-    type: 'rss'
-  },
-  {
-    name: 'Gold Price News',
-    url: 'https://www.kitco.com/rss/kitco-news.xml',
-    type: 'rss'
+    type: 'rss',
+    fallback: true
   }
 ];
 
@@ -54,23 +51,24 @@ function scoreImpact(title, description) {
   const text = `${title} ${description}`.toLowerCase();
   let score = 0;
   const matchedKeywords = [];
-
   GOLD_KEYWORDS.forEach(keyword => {
     if (text.includes(keyword.toLowerCase())) {
       score += 1;
       matchedKeywords.push(keyword);
     }
   });
-
   return { score, matchedKeywords };
 }
 
 async function fetchRSSFeed(source) {
   try {
     const response = await axios.get(source.url, {
-      timeout: 15000,
+      timeout: 12000,
+      maxRedirects: 5,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; GoldPredictor/1.0)'
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+        'Accept-Language': 'en-US,en;q=0.9',
       }
     });
 
@@ -78,7 +76,7 @@ async function fetchRSSFeed(source) {
     const items = [];
 
     $('item').each((i, el) => {
-      if (i >= 20) return false; // 每源最多取20条
+      if (i >= 25) return false;
       const title = $(el).find('title').first().text().trim();
       const description = $(el).find('description').first().text().replace(/<[^>]+>/g, '').trim();
       const link = $(el).find('link').first().text().trim() || $(el).find('link').first().attr('href') || '';
@@ -90,7 +88,7 @@ async function fetchRSSFeed(source) {
       if (score > 0) {
         items.push({
           title,
-          summary: description.substring(0, 500),
+          summary: description.substring(0, 600),
           source: source.name,
           url: link,
           published_at: new Date(pubDate).toISOString(),
@@ -103,7 +101,7 @@ async function fetchRSSFeed(source) {
     console.log(`[News] ${source.name}: ${items.length} relevant items`);
     return items;
   } catch (err) {
-    console.error(`[News] Failed to fetch ${source.name}:`, err.message);
+    console.error(`[News] Failed ${source.name}: ${err.message}`);
     return [];
   }
 }
@@ -114,31 +112,27 @@ async function fetchAllNews() {
   for (const source of NEWS_SOURCES) {
     const items = await fetchRSSFeed(source);
     allItems.push(...items);
-    await new Promise(r => setTimeout(r, 500)); // 间隔500ms避免过快
+    await new Promise(r => setTimeout(r, 800));
   }
 
-  // 按影响分数排序，取最高影响的30条
   allItems.sort((a, b) => b.impact_score - a.impact_score);
-  const topItems = allItems.slice(0, 30);
+  const topItems = allItems.slice(0, 40);
 
-  // 保存到数据库（去重）
+  try {
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_events_url ON events(url)`);
+  } catch (e) {}
+
   const insert = db.prepare(`
     INSERT OR IGNORE INTO events (title, summary, source, url, published_at, impact_keywords)
     VALUES (@title, @summary, @source, @url, @published_at, @impact_keywords)
   `);
 
-  // 先建 unique index（幂等）
-  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_events_url ON events(url)`);
-
   let saved = 0;
   for (const item of topItems) {
-    try {
-      insert.run(item);
-      saved++;
-    } catch (e) { /* 重复跳过 */ }
+    try { insert.run(item); saved++; } catch (e) {}
   }
 
-  console.log(`[News] Saved ${saved} new events`);
+  console.log(`[News] Saved ${saved} new events (total fetched: ${allItems.length})`);
   return topItems;
 }
 
@@ -147,7 +141,7 @@ function getRecentEvents(days = 7) {
     SELECT * FROM events
     WHERE published_at >= datetime('now', '-${days} days')
     ORDER BY published_at DESC
-    LIMIT 50
+    LIMIT 60
   `).all();
 }
 
