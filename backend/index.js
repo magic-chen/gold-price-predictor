@@ -7,60 +7,130 @@ const cron = require('node-cron');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// 中间件
 app.use(cors());
 app.use(express.json());
-
-// 静态文件（前端 build 后放这里）
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
 
-// API 路由
+// ── SSE 客户端管理（Server-Sent Events 实时推送到前端）──
+const sseClients = new Set();
+
+app.get('/api/stream', (req, res) => {
+  res.set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no'
+  });
+  res.flushHeaders();
+  res.write('data: {"type":"connected"}\n\n');
+
+  sseClients.add(res);
+  req.on('close', () => sseClients.delete(res));
+});
+
+function broadcastSSE(data) {
+  const payload = `data: ${JSON.stringify(data)}\n\n`;
+  sseClients.forEach(client => {
+    try { client.write(payload); } catch (e) { sseClients.delete(client); }
+  });
+}
+
+// ── API 路由 ──
 app.use('/api', require('./routes/api'));
 
-// 其他路由返回前端 index.html（SPA 支持）
+// SPA fallback
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
 });
 
-// 定时任务
-const { fetchGoldPrice } = require('./services/goldService');
-const { fetchAllNews } = require('./services/newsService');
-const { verifyPredictions } = require('./services/predictionService');
+// ── 服务引入 ──
+const { fetchGoldPrice, getLatestPrice } = require('./services/goldService');
+const { fetchAllNews, getRecentEvents } = require('./services/newsService');
+const { generatePrediction, verifyPredictions, getAccuracyStats } = require('./services/predictionService');
+const { sendFeishuMessage, buildPushMessage } = require('./services/pushService');
+const db = require('./db/init');
 
-// 每小时抓取一次金价
-cron.schedule('0 * * * *', async () => {
-  console.log('[Cron] Fetching gold price...');
-  await fetchGoldPrice();
-});
+// ── 核心：自动抓取 + 分析 + 推送 ──────────────────────────
+async function runCycle(opts = {}) {
+  const { silent = false } = opts;
+  console.log(`\n[Cycle] ====== 开始执行周期 ${new Date().toLocaleString('zh-CN')} ======`);
 
-// 每6小时抓取一次新闻
-cron.schedule('0 */6 * * *', async () => {
-  console.log('[Cron] Fetching news...');
+  // 1. 拉取最新金价
+  const price = await fetchGoldPrice();
+  console.log(`[Cycle] 金价: $${price}`);
+
+  // 2. 抓取新闻，找出新增的
+  const beforeCount = db.prepare('SELECT COUNT(*) as c FROM events').get().c;
   await fetchAllNews();
-});
+  const afterCount = db.prepare('SELECT COUNT(*) as c FROM events').get().c;
+  const newCount = afterCount - beforeCount;
+  console.log(`[Cycle] 新增事件: ${newCount} 条`);
 
-// 每天验证一次预测
-cron.schedule('30 8 * * *', async () => {
-  console.log('[Cron] Verifying predictions...');
-  await verifyPredictions();
-});
+  // 3. 为新增事件生成预测
+  let newEvents = [];
+  if (newCount > 0) {
+    // 取最新的 newCount 条（刚入库的）
+    newEvents = db.prepare(`
+      SELECT * FROM events
+      ORDER BY created_at DESC
+      LIMIT ?
+    `).all(Math.min(newCount, 15));
 
-// 启动时先初始化数据
-async function init() {
-  try {
-    console.log('[Init] Fetching initial gold price...');
-    await fetchGoldPrice();
-    console.log('[Init] Fetching initial news...');
-    await fetchAllNews();
-    console.log('[Init] Done.');
-  } catch (e) {
-    console.error('[Init] Error:', e.message);
+    for (const evt of newEvents) {
+      const existing = db.prepare('SELECT id FROM predictions WHERE event_id = ?').get(evt.id);
+      if (!existing) {
+        await generatePrediction(evt);
+      }
+    }
+    console.log(`[Cycle] 已为 ${newEvents.length} 条新事件生成预测`);
   }
+
+  // 4. 验证昨天的预测
+  await verifyPredictions();
+
+  // 5. 通知前端刷新（SSE）
+  broadcastSSE({
+    type: 'update',
+    price,
+    newEvents: newCount,
+    stats: getAccuracyStats(),
+    ts: Date.now()
+  });
+
+  // 6. 如果有高影响新事件，推送飞书消息
+  if (!silent && newCount > 0) {
+    const highImpact = newEvents.filter(e => e.sentiment !== 'neutral');
+    if (highImpact.length > 0) {
+      const msg = buildPushMessage(highImpact, price);
+      await sendFeishuMessage(msg);
+      console.log(`[Cycle] 飞书推送完成 (${highImpact.length} 条高影响事件)`);
+    }
+  }
+
+  console.log(`[Cycle] ====== 周期完成 ======\n`);
 }
 
+// ── 定时任务 ──────────────────────────────────────────────
+// 每2小时执行一次完整周期
+cron.schedule('0 */2 * * *', () => runCycle());
+
+// 每30分钟只刷新金价（不抓新闻，不推送）
+cron.schedule('*/30 * * * *', async () => {
+  const price = await fetchGoldPrice();
+  broadcastSSE({ type: 'price', price, ts: Date.now() });
+});
+
+// 每天早8点跑一次验证
+cron.schedule('0 8 * * *', async () => {
+  await verifyPredictions();
+  broadcastSSE({ type: 'verified', stats: getAccuracyStats(), ts: Date.now() });
+});
+
+// ── 启动 ──────────────────────────────────────────────────
 app.listen(PORT, () => {
-  console.log(`🚀 Gold Predictor backend running on port ${PORT}`);
-  init();
+  console.log(`🚀 Gold Predictor running on port ${PORT}`);
+  // 启动时立即跑一次，silent=true 不推送
+  runCycle({ silent: true }).catch(console.error);
 });
 
 module.exports = app;

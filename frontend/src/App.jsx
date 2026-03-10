@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from 'recharts'
 import axios from 'axios'
+import { useDashboard } from './hooks/useDashboard'
 
 const BASE = import.meta.env.VITE_API_BASE || ''
 const fmt = (n, d = 2) => n != null ? Number(n).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }) : '--'
-const fmtCNY = (n) => n != null ? `¥${Number(n).toFixed(2)}` : '--'
 
 // ─── 顶部统计卡片 ────────────────────────────────────────────
 function MetricCard({ label, value, sub, valueClass = 'text-gray-900', badge, icon }) {
@@ -262,14 +262,9 @@ function EventCard({ evt }) {
 
 // ─── 主 App ──────────────────────────────────────────────────
 export default function App() {
-  const [stats, setStats] = useState(null)
-  const [latest, setLatest] = useState(null)
+  const { data, loading, error, refresh, refreshing, livePrice, newEventCount } = useDashboard()
   const [history, setHistory] = useState([])
-  const [events, setEvents] = useState([])
-  const [cnyPerGram, setCnyPerGram] = useState(null)
   const [days, setDays] = useState(7)
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
   const [lastUpdate, setLastUpdate] = useState(null)
 
   const loadHistory = useCallback(async (d) => {
@@ -279,49 +274,25 @@ export default function App() {
     } catch (e) {}
   }, [])
 
-  const loadAll = useCallback(async () => {
-    try {
-      const res = await axios.get(`${BASE}/api/dashboard`)
-      if (res.data.success) {
-        const d = res.data.data
-        setStats(d.stats)
-        setLatest(d.latest)
-        setEvents(d.events || [])
-        setCnyPerGram(d.cnyPerGram)
-        setLastUpdate(new Date())
-      }
-    } catch (e) { console.error(e) }
-    finally { setLoading(false) }
-  }, [])
-
-  useEffect(() => {
-    loadAll()
-    loadHistory(days)
-    const t = setInterval(() => { loadAll(); loadHistory(days) }, 5 * 60 * 1000)
-    return () => clearInterval(t)
-  }, [])
-
   useEffect(() => { loadHistory(days) }, [days])
 
-  const handleRefresh = async () => {
-    setRefreshing(true)
-    try {
-      await axios.post(`${BASE}/api/events/refresh`)
-      await axios.post(`${BASE}/api/predictions/verify`)
-      await loadAll()
-      await loadHistory(days)
-    } catch (e) {}
-    finally { setRefreshing(false) }
-  }
+  useEffect(() => {
+    if (data) setLastUpdate(new Date())
+  }, [data])
 
+  const stats = data?.stats
+  const latest = data?.latest
+  const events = data?.events || []
+  const cnyPerGram = data?.cnyPerGram
+
+  // livePrice 优先（SSE实时更新），否则用 latest
+  const curPrice = livePrice || latest?.price
   const prices = history.map(h => h.price).filter(Boolean)
   const prevPrice = prices.length > 1 ? prices[prices.length - 2] : null
-  const curPrice = latest?.price
   const priceChange = curPrice && prevPrice ? curPrice - prevPrice : null
   const priceChangePct = prevPrice && priceChange ? ((priceChange / prevPrice) * 100).toFixed(2) : null
   const priceUp = (priceChange ?? 0) >= 0
 
-  // 事件分组
   const bullishCount = events.filter(e => e.sentiment === 'bullish').length
   const bearishCount = events.filter(e => e.sentiment === 'bearish').length
 
@@ -343,8 +314,18 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            {lastUpdate && <span className="text-xs text-gray-400 hidden sm:block">更新 {lastUpdate.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>}
-            <button onClick={handleRefresh} disabled={refreshing}
+            {/* 实时状态点 */}
+            <div className="hidden sm:flex items-center gap-1.5 text-xs text-gray-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block" />
+              实时
+              {lastUpdate && <span>· {lastUpdate.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>}
+            </div>
+            {newEventCount > 0 && (
+              <button onClick={() => { refresh(); }} className="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-3 py-1.5 rounded-full font-medium animate-pulse">
+                {newEventCount} 条新事件
+              </button>
+            )}
+            <button onClick={refresh} disabled={refreshing}
               className="inline-flex items-center gap-1.5 bg-[#B8860B] hover:bg-[#9a7009] disabled:opacity-50 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-all">
               <svg className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
