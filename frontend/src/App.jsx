@@ -314,24 +314,17 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            {/* 实时状态点 */}
-            <div className="hidden sm:flex items-center gap-1.5 text-xs text-gray-400">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block" />
-              实时
-              {lastUpdate && <span>· {lastUpdate.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>}
+            {/* 实时状态 */}
+            <div className="flex items-center gap-1.5 text-xs text-gray-400">
+              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse inline-block" />
+              <span className="hidden sm:inline">实时更新</span>
             </div>
+            {/* 有新事件时提示 */}
             {newEventCount > 0 && (
-              <button onClick={() => { refresh(); }} className="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-3 py-1.5 rounded-full font-medium animate-pulse">
+              <span className="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-3 py-1 rounded-full font-medium animate-pulse">
                 {newEventCount} 条新事件
-              </button>
+              </span>
             )}
-            <button onClick={refresh} disabled={refreshing}
-              className="inline-flex items-center gap-1.5 bg-[#B8860B] hover:bg-[#9a7009] disabled:opacity-50 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-all">
-              <svg className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              {refreshing ? '更新中' : '刷新数据'}
-            </button>
           </div>
         </div>
       </header>
@@ -358,9 +351,7 @@ export default function App() {
                     {priceUp ? '▲' : '▼'} ${fmt(Math.abs(priceChange))}（{priceUp ? '+' : ''}{priceChangePct}%）
                   </div>
                 )}
-                <div className="text-xs text-gray-400 mt-2">
-                  {latest?.fetched_at ? new Date(latest.fetched_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '--'}
-                </div>
+                <div className="text-xs text-gray-400 mt-2">XAU/USD · 每30分钟更新</div>
               </div>
 
               {/* 国内金价（人民币/克） */}

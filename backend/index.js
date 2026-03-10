@@ -114,10 +114,11 @@ async function runCycle(opts = {}) {
 // 每2小时执行一次完整周期
 cron.schedule('0 */2 * * *', () => runCycle());
 
-// 每30分钟只刷新金价（不抓新闻，不推送）
+// 每30分钟抓取并存储金价
 cron.schedule('*/30 * * * *', async () => {
-  const price = await fetchGoldPrice();
+  const price = await fetchGoldPrice();  // 内部已写库
   broadcastSSE({ type: 'price', price, ts: Date.now() });
+  console.log('[Cron/30m] Gold price saved:', price);
 });
 
 // 每天早8点跑一次验证
@@ -129,7 +130,11 @@ cron.schedule('0 8 * * *', async () => {
 // ── 启动 ──────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`🚀 Gold Predictor running on port ${PORT}`);
-  // 启动时立即跑一次，silent=true 不推送
+  // 启动时：先立即抓一次金价，再跑完整周期
+  fetchGoldPrice().then(p => {
+    broadcastSSE({ type: 'price', price: p, ts: Date.now() });
+    console.log('[Startup] Initial gold price fetched:', p);
+  });
   runCycle({ silent: true }).catch(console.error);
 });
 
