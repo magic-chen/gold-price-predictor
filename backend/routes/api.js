@@ -16,10 +16,10 @@ router.get('/price', async (req, res) => {
   }
 });
 
-// GET /api/gold/history - 金价历史
+// GET /api/history - 金价历史
 router.get('/history', (req, res) => {
   const days = parseInt(req.query.days) || 7;
-  const history = getPriceHistory(days);
+  const history = getPriceHistory(Math.min(days, 60)); // 最多60天
   res.json({ success: true, data: history });
 });
 
@@ -112,13 +112,23 @@ router.get('/dashboard', async (req, res) => {
   try {
     const latest = getLatestPrice();
     const history = getPriceHistory(7);
-    const events = getRecentEvents(7);
+    const events = getRecentEvents(30); // 取30天事件
     const predictions = getRecentPredictions(15);
     const stats = getAccuracyStats();
 
+    // 获取人民币汇率算国内金价
+    let cnyRate = 7.25; // 默认汇率
+    try {
+      const fxRes = await require('axios').get('https://open.er-api.com/v6/latest/USD', { timeout: 5000 });
+      if (fxRes.data?.rates?.CNY) cnyRate = fxRes.data.rates.CNY;
+    } catch (e) {}
+
+    // 国内金价：troy oz → 克 (1 troy oz = 31.1035g)，再乘以汇率
+    const cnyPerGram = latest ? (latest.price / 31.1035 * cnyRate) : null;
+
     res.json({
       success: true,
-      data: { latest, history, events, predictions, stats }
+      data: { latest, history, events, predictions, stats, cnyPerGram, cnyRate }
     });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });

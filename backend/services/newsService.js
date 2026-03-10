@@ -4,6 +4,7 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 const db = require('../db/init');
+const { analyzeSentiment, quickTranslate } = require('./sentimentService');
 
 // 金价敏感关键词
 const GOLD_KEYWORDS = [
@@ -123,13 +124,18 @@ async function fetchAllNews() {
   } catch (e) {}
 
   const insert = db.prepare(`
-    INSERT OR IGNORE INTO events (title, summary, source, url, published_at, impact_keywords)
-    VALUES (@title, @summary, @source, @url, @published_at, @impact_keywords)
+    INSERT OR IGNORE INTO events (title, summary, source, url, published_at, impact_keywords, title_zh, sentiment, sentiment_reason)
+    VALUES (@title, @summary, @source, @url, @published_at, @impact_keywords, @title_zh, @sentiment, @sentiment_reason)
   `);
 
   let saved = 0;
   for (const item of topItems) {
-    try { insert.run(item); saved++; } catch (e) {}
+    try {
+      const { sentiment, reason } = analyzeSentiment(item.title, item.summary || '', item.impact_keywords || '');
+      const title_zh = quickTranslate(item.title);
+      insert.run({ ...item, title_zh, sentiment, sentiment_reason: reason });
+      saved++;
+    } catch (e) {}
   }
 
   console.log(`[News] Saved ${saved} new events (total fetched: ${allItems.length})`);
